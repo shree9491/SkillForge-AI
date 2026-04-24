@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "Represents a SkillForge AI project state",
+      "type": "object",
+      "properties": {
+        "manager_id": { "type": "string" },
+        "employee_id": { "type": "string" },
+        "goal_text": { "type": "string" },
+        "approved_plan": { "type": "object" },
+        "current_module": { "type": "number" },
+        "github_url": { "type": "string" },
+        "task_score": { "type": "number" },
+        "interview_score": { "type": "number" },
+        "final_score": { "type": "number" },
+        "feedback": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "new_project",
+            "plan_generated",
+            "plan_approved",
+            "course_ready",
+            "task_submitted",
+            "evaluation_running",
+            "evaluation_done",
+            "repeat_module",
+            "next_module",
+            "report_generated",
+            "error"
+          ]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["manager_id", "status", "goal_text"]
+    },
+    "Module": {
+      "title": "Module",
+      "description": "A specific learning module within a project",
+      "type": "object",
+      "properties": {
+        "project_id": { "type": "string" },
+        "index": { "type": "number" },
+        "module_title": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "concepts": { "type": "array" },
+        "content": { "type": "object" },
+        "task": { "type": "object" },
+        "submission": { "type": "object" }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "SkillForge AI user (Manager or Employee)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["manager", "employee"] },
+        "displayName": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Live project states"
+    },
+    "/projects/{projectId}/modules/{moduleId}": {
+      "schema": "Module",
+      "description": "Learning modules for a project"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    }
+  }
+}

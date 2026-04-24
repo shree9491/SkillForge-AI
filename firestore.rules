@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isVerified() { return request.auth.token.email_verified == true; }
+    
+    // Check if user is a member of the project
+    function isProjectMember(projectId) {
+      let project = get(/databases/$(database)/documents/projects/$(projectId)).data;
+      return isSignedIn() && (request.auth.uid == project.manager_id || request.auth.uid == project.employee_id);
+    }
+
+    // Entity Validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'displayName']) &&
+             data.keys().size() == 4 &&
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() < 256 &&
+             data.role in ['manager', 'employee'] &&
+             data.displayName is string && data.displayName.size() < 128;
+    }
+
+    function isValidProjectCreate(data) {
+      return data.keys().hasAll(['manager_id', 'goal_text', 'status', 'current_module', 'createdAt', 'updatedAt']) &&
+             data.keys().size() == 6 &&
+             data.manager_id == request.auth.uid &&
+             data.goal_text is string && data.goal_text.size() <= 4000 &&
+             data.current_module is int &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time &&
+             data.status == 'new_project';
+    }
+
+    // 1. User Rules
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && resource.data.role == 'employee'; // Allow managers to find employees
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName']) &&
+                      incoming().displayName is string;
+    }
+
+    // 2. Project Rules
+    match /projects/{projectId} {
+      allow get: if isSignedIn() && (isOwner(resource.data.manager_id) || isOwner(resource.data.employee_id));
+      allow list: if isSignedIn() && (resource.data.manager_id == request.auth.uid || resource.data.employee_id == request.auth.uid);
+      allow create: if isSignedIn() && isValidProjectCreate(incoming());
+      
+      allow update: if (
+        isSignedIn() && (isOwner(existing().manager_id) || isOwner(existing().employee_id)) && (
+          // Manager approving plan
+          (isOwner(existing().manager_id) && 
+           incoming().diff(existing()).affectedKeys().hasOnly(['approved_plan', 'status', 'employee_id', 'updatedAt']) &&
+           existing().status == 'plan_generated' &&
+           incoming().status == 'plan_approved') ||
+          
+          // Employee submitting task and saving evaluation
+          (isOwner(existing().employee_id) &&
+           (
+             // Phase 1: Submit URL
+             (incoming().diff(existing()).affectedKeys().hasOnly(['github_url', 'status', 'updatedAt']) &&
+              (existing().status == 'course_ready' || existing().status == 'repeat_module' || existing().status == 'next_module') &&
+              incoming().status == 'task_submitted') ||
+             
+             // Phase 2: Save AI Evaluation
+             (incoming().diff(existing()).affectedKeys().hasOnly(['final_score', 'feedback', 'interview', 'status', 'updatedAt']) &&
+              existing().status == 'task_submitted' &&
+              incoming().status == 'evaluation_done')
+           )) ||
+
+          // System / Agent updates (simulated)
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approved_plan', 'feedback', 'updatedAt']) && 
+           (isOwner(existing().manager_id) || isOwner(existing().employee_id)))
+        )
+      );
+    }
+
+    // 3. Module Rules
+    match /projects/{projectId}/modules/{moduleId} {
+      allow read: if isProjectMember(projectId);
+      allow write: if isProjectMember(projectId); // Simplified basic write for task submissions in modules
+    }
+  }
+}
